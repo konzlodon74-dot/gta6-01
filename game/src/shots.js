@@ -6,8 +6,7 @@
 
 import { STEP } from './config.js';
 import { roadCenterX, roadCenterY } from './city.js';
-import { createCar, stepCarPhysics } from './vehicles.js';
-import { updateTrafficCar } from './vehicles.js';
+import { createCar, stepCarPhysics, updateTrafficCar } from './vehicles.js';
 import { updatePed, createPed } from './people.js';
 import { MISSIONS } from './missions.js';
 

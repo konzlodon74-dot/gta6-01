@@ -5,7 +5,7 @@
 
 import {
   STEP, WALK_SPEED, SPRINT_SPEED, PLAYER_RADIUS, PISTOL_RANGE, PISTOL_DAMAGE,
-  PISTOL_COOLDOWN, FIST_RANGE, FIST_DAMAGE, COLORS,
+  PISTOL_COOLDOWN, FIST_RANGE, FIST_DAMAGE,
 } from './config.js';
 import { buildCity, collideCircle, districtAt } from './city.js';
 import { makeRandom } from './random.js';

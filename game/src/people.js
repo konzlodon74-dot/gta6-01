@@ -2,7 +2,7 @@
 // beach, who flee from gunfire and reckless driving, drop a little cash when
 // they go down, and — in a few marked cases — fight back as mission muscle.
 
-import { BLOCK, ROAD, COLORS } from './config.js';
+import { BLOCK, COLORS } from './config.js';
 import { collideCircle, blockX, blockY } from './city.js';
 
 let nextPedId = 1;

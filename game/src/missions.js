@@ -4,7 +4,7 @@
 // runner walks the current mission's steps, plants its markers, spawns its
 // cars and muscle, and pays out at the end.
 
-import { BLOCK, ROAD, COLS, COLORS } from './config.js';
+import { BLOCK, ROAD, COLS } from './config.js';
 import { roadCenterX } from './city.js';
 import { createCar } from './vehicles.js';
 import { createPed } from './people.js';
@@ -152,7 +152,6 @@ export function createMissionRunner() {
         for (let n = 0; n < fighters; n++) {
           const thug = createPed(at.x + (n - 1) * 30, at.y + 26 + (n % 2) * 22, G.rng, 'thug');
           thug.state = step.guards ? 'fight' : 'wander';
-          if (step.guards) thug.state = 'fight';
           G.peds.push(thug);
           this.thugs.push(thug);
         }
