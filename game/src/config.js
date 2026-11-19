@@ -1,83 +1,88 @@
-// Palmera Heat — tuning, palette and city dimensions in one place.
-// Every other module reads its numbers from here so the game's feel can be
-// adjusted without hunting through the simulation.
+// config.js — the shape of Palmera and the numbers everything else tunes by.
+//
+// Palmera is a grid city on a coast. Six avenues run north-south, four
+// streets run east-west, and the eastern edge gives up to sand and open
+// water. All coordinates are world pixels; the world is 3840 by 2700.
 
-/** City grid: blocks of BLOCK px separated by roads of ROAD px. */
-export const BLOCK = 256;
-export const ROAD = 76;
-export const COLS = 11;
-export const ROWS = 8;
-/** World size in pixels, roads included on every edge. */
-export const WORLD_W = COLS * (BLOCK + ROAD) + ROAD;
-export const WORLD_H = ROWS * (BLOCK + ROAD) + ROAD;
-/** The sandy band and the sea along the south edge of the map. */
-export const BEACH_Y = WORLD_H - ROAD - 150;
-export const SEA_Y = WORLD_H - 84;
+export const WORLD = { w: 3840, h: 2700 };
 
-/** Player on foot. */
-export const WALK_SPEED = 148;
-export const SPRINT_SPEED = 238;
+export const AVENUES = [300, 900, 1500, 2100, 2700, 3300];
+export const STREETS = [300, 900, 1500, 2100];
+export const ROAD_HALF = 58; // half the width of a road, in pixels
+
+export const SAND_X = 3400; // east of the coast road the asphalt ends
+export const WATER_X = 3610; // and east of the sand, the sea begins
+
+export const CITY_SEED = 20261117; // the city is the same on every visit
+
+// The player, Nico Ferreira, on foot and behind the wheel.
+export const WALK_SPEED = 128;
+export const RUN_SPEED = 232;
 export const PLAYER_RADIUS = 11;
-export const PLAYER_HP = 100;
+export const PLAYER_MAX_HP = 100;
 
-/** Arcade car physics. */
-export const CAR_ACCEL = 340;
-export const CAR_REVERSE = 150;
-export const CAR_MAX_SPEED = 430;
-export const CAR_GRIP = 7.5;
-export const CAR_TURN = 2.6;
-export const CAR_RADIUS = 15;
+// Wanted heat: crimes add points, stars fall out of the thresholds, and
+// heat cools when the police lose the trail.
+export const HEAT_THRESHOLDS = [0, 12, 32, 62, 102, 152];
+export const HEAT_DECAY_QUIET = 1.5; // per second, nobody watching
+export const HEAT_DECAY_WATCHED = 0.3; // per second, police in sight
 
-/** Police and the wanted meter. */
-export const MAX_STARS = 5;
-export const STAR_DECAY_SECONDS = 16;
-export const COP_SPAWN_EVERY = 2.4;
-
-/** Combat. */
-export const PISTOL_RANGE = 430;
-export const PISTOL_DAMAGE = 34;
-export const PISTOL_COOLDOWN = 0.24;
-export const FIST_RANGE = 30;
-export const FIST_DAMAGE = 22;
-
-/** Sun-soaked Palmera palette. */
-export const COLORS = {
-  sea: '#1d7f96',
-  seaDeep: '#146a84',
-  sand: '#ecd29a',
-  sandWet: '#dfc084',
-  grass: '#79b657',
-  park: '#8cc168',
-  sidewalk: '#cfc8b8',
-  road: '#3c4149',
-  roadEdge: '#2f333a',
-  lane: '#e8e4d2',
-  crosswalk: '#d9d5c6',
-  plaza: '#ddd3ba',
-  roofOld: ['#c96f4a', '#b85c48', '#d08355', '#a9503f'],
-  roofDown: ['#5b7186', '#71879b', '#4d6379', '#8296a8'],
-  roofMarina: ['#e8e2d2', '#d7e4e2', '#efe9da', '#cfe0da'],
-  wallShade: 'rgba(30, 24, 18, 0.28)',
-  palmTrunk: '#8a6844',
-  palmLeaf: '#3f9e4d',
-  playerShirt: '#ff7847',
-  pedShirts: ['#e5e0d0', '#7fb3d5', '#f2c14e', '#e07a5f', '#81b29a', '#bc6c25', '#9b5de5', '#f1fa8c'],
-  carPaint: ['#d64541', '#2e86de', '#f5f6fa', '#353b48', '#e1b12c', '#1dd1a1', '#ff6b81', '#8395a7', '#f368e0', '#48dbfb'],
-  copPaint: '#20242c',
-  copStripe: '#f5f6fa',
-  taxiPaint: '#f7b731',
+export const CRIME_HEAT = {
+  carjack: 14,
+  shove: 8,
+  runOver: 26,
+  hitCop: 16,
+  hitCar: 4,
+  hitProp: 2,
 };
 
-/** Named districts by column band, west to east. */
+// Cop presence per star level, and how the bust meter behaves.
+export const COPS_PER_STAR = [0, 2, 3, 5, 7, 9];
+export const BUST_RANGE = 120;
+export const BUST_FILL_TIME = 1.6; // seconds of being pinned to be busted
+export const BUST_DRAIN = 0.55; // meter lost per second while escaping
+
+// The palette: late-afternoon sun over a coastal city.
+export const COLORS = {
+  land: '#b3a284',
+  landAlt: '#ab9a7a',
+  sidewalk: '#c9bb9d',
+  asphalt: '#43454a',
+  asphaltEdge: '#d8d2c0',
+  laneMark: '#e8e2c8',
+  sand: '#ecd096',
+  sandWet: '#dfc084',
+  water: '#2e7ea6',
+  waterDeep: '#1f6f9b',
+  waterFoam: '#bfe6ef',
+  grass: '#7fae5c',
+  palmTrunk: '#7a5c3e',
+  palmLeaf: '#3e8e4f',
+  playerShirt: '#0f7d8c',
+  playerSkin: '#c98d5f',
+  playerPants: '#2c3550',
+  copBody: '#20242c',
+  copDoor: '#e8e9eb',
+  beacon: '#ffc845',
+  sideBeacon: '#59d6ff',
+  danger: '#e5484d',
+  cash: '#7dd069',
+};
+
 export const DISTRICTS = [
-  { name: 'Old Town', until: 3 },
-  { name: 'Downtown Palmera', until: 7 },
-  { name: 'Marina District', until: COLS },
+  { name: 'Hillside', x0: 0, y0: 0, x1: 1560, y1: 960 },
+  { name: 'Farallon Point', x0: 3240, y0: 0, x1: 3840, y1: 960 },
+  { name: 'Old Town', x0: 0, y0: 960, x1: 1560, y1: 2160 },
+  { name: 'Downtown Palmera', x0: 1560, y0: 0, x1: 3240, y1: 2160 },
+  { name: 'Palm Beach', x0: 3240, y0: 960, x1: 3840, y1: 2160 },
+  { name: 'Portside', x0: 0, y0: 2160, x1: 2100, y1: 2700 },
+  { name: 'The Mercado', x0: 2100, y0: 2160, x1: 3240, y1: 2700 },
+  { name: 'The Marina', x0: 3240, y0: 2160, x1: 3840, y1: 2700 },
 ];
 
-/** Street names: avenues run north-south, streets run east-west. */
-export const AVENUES = ['Calle Sol', 'Avenida Palma', 'Coral Ave', 'Bulevar Reyes', 'Flamingo Ave', 'Calle Luna', 'Harbor Ave', 'Avenida Brisa', 'Calle Oro', 'Neon Ave', 'Paseo del Mar'];
-export const STREETS = ['1st Street', 'Calle Hibisco', '3rd Street', 'Avenida Central', '5th Street', 'Calle Mango', '7th Street', 'Bulevar Azul'];
-
-/** The fixed simulation step, so staged screenshots are deterministic. */
-export const STEP = 1 / 60;
+export function districtAt(x, y) {
+  for (const d of DISTRICTS) {
+    if (x >= d.x0 && x < d.x1 && y >= d.y0 && y < d.y1) return d.name;
+  }
+  return 'Palmera';
+}

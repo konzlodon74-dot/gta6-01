@@ -1,163 +1,114 @@
-// The Palmera PD: a five-star wanted meter that rises when crimes are seen
-// and cools when the player breaks line of sight, squad cars that route
-// across the city after the player, and foot officers who make the arrest
-// when they can hold the player at arm's length.
+// police.js — the wanted system. Crimes feed a heat score; heat becomes
+// stars; stars decide how many patrol cars Palmera sends and how hard
+// they lean. Pin Nico down — on foot or in a crawling car, with a patrol
+// car close — and the bust meter fills. Break away and it drains, and
+// the heat itself cools once nobody is watching.
 
-import { MAX_STARS, STAR_DECAY_SECONDS, COP_SPAWN_EVERY, COLORS } from './config.js';
-import { findPath } from './city.js';
-import { createCar, driveToward } from './vehicles.js';
-import { createPed } from './people.js';
-import { makeRandom } from './random.js';
+import {
+  HEAT_THRESHOLDS, HEAT_DECAY_QUIET, HEAT_DECAY_WATCHED, CRIME_HEAT,
+  COPS_PER_STAR, BUST_RANGE, BUST_FILL_TIME, BUST_DRAIN,
+} from './config.js';
+import { clamp } from './rng.js';
+import { makeCar, carSpeed, driveToward } from './vehicles.js';
 
-export function createPolice() {
-  return {
-    stars: 0,
-    heat: 0,
-    hideTime: 0,
-    spawnTimer: 0,
-    bust: 0,
-    rng: makeRandom(4242),
+export function starsForHeat(heat) {
+  let stars = 0;
+  for (let i = 1; i < HEAT_THRESHOLDS.length; i++) {
+    if (heat >= HEAT_THRESHOLDS[i]) stars = i;
+  }
+  return stars;
+}
 
-    /** A crime went in: severity 1 is a theft, 3 a shooting, 5 a downed officer. */
-    commitCrime(points, seen = true) {
-      if (!seen && this.stars === 0) points *= 0.4;
-      this.heat += points;
-      this.hideTime = 0;
-      while (this.heat >= 3 && this.stars < MAX_STARS) {
-        this.stars += 1;
-        this.heat -= 3;
+export function reportCrime(G, kind, x, y) {
+  const points = CRIME_HEAT[kind] || 0;
+  if (points <= 0) return;
+  G.heat = Math.min(HEAT_THRESHOLDS[HEAT_THRESHOLDS.length - 1] + 60, G.heat + points);
+  G.lastCrimeAt = G.time;
+  G.lastCrimePos = { x, y };
+}
+
+function spawnPoint(city, player) {
+  let best = null;
+  let bestScore = -Infinity;
+  for (const n of city.graph.nodes) {
+    const d = Math.hypot(n.x - player.x, n.y - player.y);
+    if (d < 560 || d > 1150) continue;
+    const score = -Math.abs(d - 820) + Math.random() * 30;
+    if (score > bestScore) { bestScore = score; best = n; }
+  }
+  if (!best) {
+    let far = 0;
+    city.graph.nodes.forEach((n, i) => {
+      const d = Math.hypot(n.x - player.x, n.y - player.y);
+      if (d > far) { far = d; best = city.graph.nodes[i]; }
+    });
+  }
+  return best;
+}
+
+export function updatePolice(G, dt) {
+  const { city, player } = G;
+  const stars = starsForHeat(G.heat);
+  G.stars = stars;
+
+  // Heat cools: fast when unseen, slowly under a patrol car's nose, and
+  // never below a floor a mission has set (a marked run stays marked).
+  const anyCopNear = G.cops.some((c) => Math.hypot(c.x - player.x, c.y - player.y) < 540);
+  const sinceCrime = G.time - G.lastCrimeAt;
+  const rate = !anyCopNear && sinceCrime > 4 ? HEAT_DECAY_QUIET : HEAT_DECAY_WATCHED;
+  if (stars > 0 || G.heat > 0) {
+    G.heat = Math.max(G.heatFloor || 0, G.heat - rate * dt);
+  }
+
+  const wanted = COPS_PER_STAR[stars] || 0;
+
+  // Send more patrols while the count is short.
+  if (G.cops.length < wanted) {
+    G.copSpawnTimer -= dt;
+    if (G.copSpawnTimer <= 0) {
+      G.copSpawnTimer = 1.4;
+      const pt = spawnPoint(city, player);
+      if (pt) {
+        const cop = makeCar('cop', pt.x, pt.y, Math.atan2(player.y - pt.y, player.x - pt.x), 'cop', G.rng);
+        G.cars.push(cop);
+        G.cops.push(cop);
       }
-      if (this.stars === 0 && this.heat > 1.2) this.stars = 1;
-    },
+    }
+  }
 
-    /** One of the player's bullets or bumpers met a police car. */
-    hitCopCar() {
-      this.commitCrime(1.2);
-    },
+  // Surplus or distant patrols peel off and leave the world.
+  for (let i = G.cops.length - 1; i >= 0; i--) {
+    const cop = G.cops[i];
+    const d = Math.hypot(cop.x - player.x, cop.y - player.y);
+    if ((G.cops.length > wanted && d > 620) || d > 1600) {
+      G.cops.splice(i, 1);
+      const at = G.cars.indexOf(cop);
+      if (at >= 0) G.cars.splice(at, 1);
+    }
+  }
 
-    setWanted(level) {
-      this.stars = Math.max(this.stars, level);
-      this.hideTime = 0;
-    },
+  // The pursuit itself: aim where Nico is going, not where he is, and
+  // box him in rather than ram at full speed when alongside.
+  const pvx = player.inCar ? player.inCar.vx : player.vx;
+  const pvy = player.inCar ? player.inCar.vy : player.vy;
+  let nearest = Infinity;
+  for (const cop of G.cops) {
+    const lead = clamp(Math.hypot(player.x - cop.x, player.y - cop.y) / 320, 0, 0.85);
+    const tx = player.x + pvx * lead;
+    const ty = player.y + pvy * lead;
+    const d = Math.hypot(player.x - cop.x, player.y - cop.y);
+    nearest = Math.min(nearest, d);
+    const top = d > 300 ? 330 : d > 130 ? 215 : 120;
+    driveToward(city, cop, tx, ty, top, dt, 26);
+  }
 
-    clear() {
-      this.stars = 0;
-      this.heat = 0;
-      this.bust = 0;
-    },
-
-    copCars(G) {
-      return G.cars.filter((c) => c.kind === 'cop' && c.driver === 'cop');
-    },
-
-    /** Spawn and steer the response; run the arrest meter. Called per step. */
-    update(G, dt) {
-      if (this.stars === 0) { this.bust = 0; return; }
-      const player = G.player;
-      const px = player.inCar ? player.car.x : player.x;
-      const py = player.inCar ? player.car.y : player.y;
-      const cops = this.copCars(G);
-      const nearest = cops.reduce((best, c) => Math.min(best, Math.hypot(c.x - px, c.y - py)), Infinity);
-      const footNear = G.peds.some((p) => p.role === 'cop' && !p.down && Math.hypot(p.x - player.x, p.y - player.y) < 300);
-
-      // Cooling off: stay unseen and the stars drain one by one.
-      if (nearest > 430 && !footNear) {
-        this.hideTime += dt;
-        if (this.hideTime > STAR_DECAY_SECONDS) {
-          this.stars -= 1;
-          this.hideTime = 0;
-          if (this.stars === 0) this.heat = 0;
-        }
-      } else {
-        this.hideTime = 0;
-      }
-
-      // Reinforcements roll in from a few blocks away, never on top of the
-      // player: pick an intersection in the ring around the chase.
-      this.spawnTimer -= dt;
-      const wanted = Math.min(2 + this.stars * 2, 9);
-      if (this.spawnTimer <= 0 && cops.length < wanted) {
-        this.spawnTimer = COP_SPAWN_EVERY;
-        const ring = G.city.nodes.filter((n) => {
-          const d = Math.hypot(n.x - px, n.y - py);
-          return d > 470 && d < 920;
-        });
-        if (ring.length > 0) {
-          const node = ring[this.rng.int(0, ring.length - 1)];
-          const car = createCar(node.x + this.rng.range(-8, 8), node.y + this.rng.range(-8, 8), 0, { kind: 'cop', driver: 'cop', color: COLORS.copPaint, name: 'Police Interceptor' });
-          car.parked = false;
-          G.cars.push(car);
-        }
-      }
-
-      // Far-off units give up the chase and go back on patrol (despawn).
-      for (const car of cops) {
-        if (Math.hypot(car.x - px, car.y - py) > 1500 && this.stars <= 2) {
-          car.driver = null;
-          car.kind = 'sedan';
-          car.color = COLORS.carPaint[3];
-        }
-      }
-
-      this.updateCopCar(G, dt, px, py);
-      this.updateFootCops(G, dt);
-    },
-
-    /** Squad cars route over the road graph, then ram when they have eyes on. */
-    updateCopCar(G, dt, px, py) {
-      for (const car of this.copCars(G)) {
-        car.repath = (car.repath || 0) - dt;
-        const direct = Math.hypot(px - car.x, py - car.y) < 210;
-        if (direct) {
-          driveToward(G, car, dt, px, py, 395, 8);
-        } else {
-          if (car.repath <= 0 || !car.path) {
-            car.repath = 1.1;
-            car.path = findPath(G.city, car.x, car.y, px, py);
-            car.pathIndex = 0;
-          }
-          const wp = car.path[Math.min(car.pathIndex, car.path.length - 1)];
-          if (Math.hypot(wp.x - car.x, wp.y - car.y) < 52) car.pathIndex++;
-          driveToward(G, car, dt, wp.x, wp.y, 385, 30);
-        }
-        // Officers pile out when the chase parks itself next to the player.
-        const speed = Math.hypot(car.vx, car.vy);
-        const dist = Math.hypot(px - car.x, py - car.y);
-        if (dist < 92 && speed < 60 && !car.emptied && !G.player.inCar) {
-          car.emptied = true;
-          for (let n = 0; n < 2; n++) {
-            const cop = createPed(car.x + 22 + n * 12, car.y + 14 - n * 10, this.rng, 'cop');
-            G.peds.push(cop);
-          }
-        }
-        if (dist > 200) car.emptied = false;
-      }
-    },
-
-    /** Foot officers chase on foot; holding position beside the player busts them. */
-    updateFootCops(G, dt) {
-      const player = G.player;
-      let holding = false;
-      for (const cop of G.peds) {
-        if (cop.role !== 'cop' || cop.down) continue;
-        const d = Math.hypot(player.x - cop.x, player.y - cop.y);
-        if (d > 700) { cop.gone = true; continue; }
-        if (player.inCar) continue;
-        if (d > 24) {
-          cop.angle = Math.atan2(player.y - cop.y, player.x - cop.x);
-          cop.x += Math.cos(cop.angle) * 196 * dt;
-          cop.y += Math.sin(cop.angle) * 196 * dt;
-        } else {
-          holding = true;
-        }
-      }
-      G.peds = G.peds.filter((p) => !p.gone);
-      if (holding && !player.inCar) {
-        this.bust += dt;
-        if (this.bust > 1.5) G.busted();
-      } else {
-        this.bust = Math.max(0, this.bust - dt * 1.6);
-      }
-    },
-  };
+  // The bust meter: a pinned Nico is a caught Nico.
+  const pSpeed = player.inCar ? carSpeed(player.inCar) : Math.hypot(player.vx, player.vy);
+  if (stars > 0 && nearest < BUST_RANGE && pSpeed < 46) {
+    G.bust = Math.min(1, G.bust + dt / BUST_FILL_TIME);
+    if (G.bust >= 1) G.bustedNow = true;
+  } else {
+    G.bust = Math.max(0, G.bust - BUST_DRAIN * dt);
+  }
+  G.nearestCop = nearest;
 }

@@ -1,158 +1,95 @@
-// Staged screenshot scenes, reached with ?shot=<name>&seed=<n>. Each one
-// builds a real moment of play — a chase, a beachfront fight, a delivery
-// run, an arrest — by placing the cast and running the actual simulation
-// forward a fixed number of steps, then freezing the frame. What the camera
-// captures is the game itself, HUD and all, never a mock-up.
+// shots.js — staged, frozen moments for the entry's screenshots.
+//
+// A URL like ?shot=chase builds the world as usual, then poses it: the
+// player, the police and the objectives are placed by hand, the clock
+// stops, and the frame the camera opens on is the frame that gets
+// captured. The scenes double as a visual checklist of the game's
+// systems: a chase with the wanted level up, the beach on foot, a
+// marina delivery, and an arrest with the bust meter nearly full.
 
-import { STEP } from './config.js';
-import { roadCenterX, roadCenterY } from './city.js';
-import { createCar, stepCarPhysics, updateTrafficCar } from './vehicles.js';
-import { updatePed, createPed } from './people.js';
-import { MISSIONS } from './missions.js';
+import { makeCar } from './vehicles.js';
 
-/** Advance the ambient world (traffic, crowds, police) without player input. */
-function ambientSteps(G, steps) {
-  for (let s = 0; s < steps; s++) {
-    G.time += STEP;
-    const px = G.player.x;
-    const py = G.player.y;
-    for (const car of G.cars) {
-      if (car.driver === 'traffic' && Math.hypot(car.x - px, car.y - py) < 1200) updateTrafficCar(G, car, STEP);
-    }
-    G.peds = G.peds.filter((ped) => (ped.role === 'cop' ? true : updatePed(G, ped, STEP)));
-    G.police.update(G, STEP);
-    for (const t of G.tracers) t.life -= STEP;
-    G.tracers = G.tracers.filter((t) => t.life > 0);
-    for (const p of G.particles) { p.life -= STEP; p.x += p.vx * STEP; p.y += p.vy * STEP; }
-    G.particles = G.particles.filter((p) => p.life > 0);
-  }
+export const SHOT_NAMES = ['chase', 'beach', 'marina', 'arrest'];
+
+function addCop(G, x, y, angle) {
+  const cop = makeCar('cop', x, y, angle, 'cop', G.rng);
+  G.cars.push(cop);
+  G.cops.push(cop);
+  return cop;
 }
 
-function putPlayerInCar(G, car) {
-  car.driver = 'player';
-  car.parked = false;
-  G.player.inCar = true;
-  G.player.car = car;
-  G.player.x = car.x;
-  G.player.y = car.y;
+function putPlayerInCar(G, kind, x, y, angle, color) {
+  const car = makeCar(kind, x, y, angle, 'player', G.rng);
+  if (color) car.color = color;
   G.cars.push(car);
+  G.player.inCar = car;
+  G.player.x = x;
+  G.player.y = y;
+  G.player.angle = angle;
+  return car;
 }
 
-/** Cover: a three-star chase down a downtown avenue, GPS lit, sirens behind. */
-function stageCover(G) {
-  G.missionIndex = 1;
-  G.runner.start(G, MISSIONS[1]);
-  G.cash = 2450;
-  G.player.hp = 82;
-  G.player.weapon = 'pistol';
-  G.weapons = ['fists', 'pistol'];
-  const car = createCar(roadCenterX(4) + 10, roadCenterY(1) + 60, Math.PI / 2, { kind: 'sport', color: '#f368e0', name: 'Neon Comet' });
-  putPlayerInCar(G, car);
-  G.police.setWanted(3);
-  for (const [dy, dx] of [[-132, -13], [-198, 15]]) {
-    const cop = createCar(car.x + dx, car.y + dy, Math.PI / 2, { kind: 'cop', driver: 'cop', color: '#20242c', name: 'Police Interceptor' });
-    cop.parked = false;
-    cop.vy = 300;
-    G.cars.push(cop);
-  }
-  G.camera.x = car.x;
-  G.camera.y = car.y + 40;
-  for (let s = 0; s < 46; s++) {
-    G.time += STEP;
-    stepCarPhysics(G, car, STEP, 0.95, Math.sin(s * 0.11) * 0.16, false);
-    G.player.x = car.x;
-    G.player.y = car.y;
-    G.police.update(G, STEP);
-    for (const c of G.cars) if (c.driver === 'traffic' && Math.hypot(c.x - car.x, c.y - car.y) < 1100) updateTrafficCar(G, c, STEP);
-    G.camera.x = car.x;
-    G.camera.y = car.y + 40;
-  }
-}
+export function setupShot(G, name) {
+  const { city, player } = G;
+  G.dialogue = [];
+  G.banner = null;
 
-/** Beach: Rico squares up to Sol's debtors at the Beach Gym, sea behind. */
-function stageBeach(G) {
-  G.missionIndex = 4;
-  G.runner.start(G, MISSIONS[4]);
-  G.cash = 3320;
-  const gym = G.city.locations.gym;
-  G.player.x = gym.x + 24;
-  G.player.y = gym.y + 30;
-  G.player.angle = Math.PI / 4;
-  G.camera.x = gym.x;
-  G.camera.y = gym.y - 30;
-  ambientSteps(G, 30);
-  // The goto step completes as the scene settles, spawning the three debtors,
-  // who square up as Rico steps onto their turf.
-  G.runner.update(G, STEP);
-  for (const thug of G.runner.thugs) thug.state = 'fight';
-  ambientSteps(G, 55);
-  // The debtors landed a few swings while the scene settled; present the
-  // fight mid-action, not through the red hurt flash it left behind.
-  G.hurtFlash = 0;
-  G.player.hp = 76;
-  G.camera.x = G.player.x;
-  G.camera.y = G.player.y - 46;
-}
-
-/** Marina: a package run east along the shore road, the docks marker ahead. */
-function stageMarina(G) {
-  G.missionIndex = 1;
-  G.runner.start(G, MISSIONS[1]);
-  G.cash = 640;
-  const marina = G.city.locations.marina;
-  const car = createCar(marina.x - 540, roadCenterY(7) - 8, 0.06, { kind: 'sedan', color: '#2e86de', name: 'Sol’s Sedan' });
-  putPlayerInCar(G, car);
-  G.camera.x = car.x;
-  G.camera.y = car.y;
-  for (let s = 0; s < 52; s++) {
-    G.time += STEP;
-    stepCarPhysics(G, car, STEP, 0.85, Math.sin(s * 0.09) * 0.1, false);
-    G.player.x = car.x;
-    G.player.y = car.y;
-    for (const c of G.cars) if (c.driver === 'traffic' && Math.hypot(c.x - car.x, c.y - car.y) < 1100) updateTrafficCar(G, c, STEP);
-    G.camera.x = car.x - 10;
-    G.camera.y = car.y - 6;
+  if (name === 'chase') {
+    // Downtown, three stars, the whole pack behind a vermillion coupe.
+    const car = putPlayerInCar(G, 'coupe', 1830, 1500, 0, '#d90429');
+    car.vx = 240;
+    G.heat = 74;
+    G.stars = 3;
+    addCop(G, 1690, 1468, 0.12);
+    addCop(G, 1652, 1536, -0.1);
+    addCop(G, 1758, 1562, -0.28);
+    G.objective = { x: city.spots.warehouse.x, y: city.spots.warehouse.y, label: 'Reach Portside Cold Storage with the case', timer: 96 };
+    G.sideObjective = null;
+    G.time = 42;
+  } else if (name === 'beach') {
+    // On foot on Palm Beach, Rosa beside him, the sea doing its part.
+    player.x = 3496;
+    player.y = 1212;
+    player.angle = 0.5;
+    const rosa = G.peds[0];
+    if (rosa) {
+      rosa.x = 3472;
+      rosa.y = 1246;
+      rosa.state = 'stand';
+      rosa.job = { role: 'storyPassenger', who: 'Rosa' };
+    }
+    G.objective = { x: city.spots.lighthouse.x, y: city.spots.lighthouse.y, label: 'Take Rosa to Farallon Lighthouse', timer: null };
+    G.dialogue = [{ who: 'Rosa', text: 'Still the best view on the coast. Walk with me a minute, Nico.', until: 1e9 }];
+    G.time = 18;
+  } else if (name === 'marina') {
+    // On the pier with the cooler aboard, the garage across the bay road.
+    const car = putPlayerInCar(G, 'sedan', 3702, 1942, Math.PI, '#588157');
+    car.vx = -60;
+    G.objective = { x: city.spots.hotel.x, y: city.spots.hotel.y, label: 'Deliver the cooler to Hotel Azul', timer: 154 };
+    G.sideObjective = { x: city.spots.garage.x, y: city.spots.garage.y, label: "Bring the coupe to Venn's Garage", timer: null };
+    G.dialogue = [{ who: 'Dario', text: 'Cold and sealed, Nico. The hotel kitchen, four minutes.', until: 1e9 }];
+    G.cash = 1240;
+    G.time = 26;
+  } else if (name === 'arrest') {
+    // Boxed in at a Downtown crossing, the meter almost full.
+    player.x = 2112;
+    player.y = 1508;
+    player.angle = -0.7;
+    G.heat = 40;
+    G.stars = 2;
+    G.bust = 0.72;
+    addCop(G, 2052, 1466, 0.5);
+    addCop(G, 2180, 1478, 2.6);
+    addCop(G, 2118, 1586, -1.5);
+    G.objective = null;
+    G.sideObjective = null;
+    G.time = 33;
+  } else {
+    return false;
   }
-}
 
-/** Arrest: four stars, two units, and the cuffs almost on, downtown. */
-function stageArrest(G) {
-  G.cash = 5110;
-  G.player.hp = 47;
-  G.player.weapon = 'pistol';
-  G.weapons = ['fists', 'pistol'];
-  G.objective = 'Lose the heat';
-  const x = roadCenterX(6);
-  const y = roadCenterY(3);
-  G.player.x = x + 6;
-  G.player.y = y + 4;
-  G.player.angle = -2.2;
-  G.police.setWanted(4);
-  for (const [dx, dy, a] of [[-58, -34, 0.7], [66, 40, -2.4]]) {
-    const cop = createCar(x + dx, y + dy, a, { kind: 'cop', driver: 'cop', color: '#20242c', name: 'Police Interceptor' });
-    cop.parked = false;
-    cop.emptied = true;
-    G.cars.push(cop);
-  }
-  for (const [dx, dy] of [[17, -9], [-15, 13]]) {
-    const foot = createPed(x + dx, y + dy, G.rng, 'cop');
-    G.peds.push(foot);
-  }
-  G.police.bust = 0.92;
-  G.camera.x = x;
-  G.camera.y = y;
-  ambientSteps(G, 12);
-  G.police.bust = 0.98;
-  G.camera.x = x;
-  G.camera.y = y;
-}
-
-const SCENES = { cover: stageCover, beach: stageBeach, marina: stageMarina, arrest: stageArrest };
-
-/** Stage the named scene on a fresh game and freeze it for the camera. */
-export function stageShot(G, name) {
-  const scene = SCENES[name] || stageCover;
-  G.state = 'playing';
-  scene(G);
-  G.frozen = true;
+  // The camera opens on the player, as it does in play.
+  G.camera.x = Math.max(0, Math.min(3840 - G.viewW, player.x - G.viewW / 2));
+  G.camera.y = Math.max(0, Math.min(2700 - G.viewH, player.y - G.viewH / 2));
+  return true;
 }

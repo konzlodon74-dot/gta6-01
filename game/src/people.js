@@ -1,126 +1,142 @@
-// The people of Palmera City: pedestrians strolling the sidewalks and the
-// beach, who flee from gunfire and reckless driving, drop a little cash when
-// they go down, and — in a few marked cases — fight back as mission muscle.
+// people.js — Palmera's pedestrians. They stroll the sidewalks around
+// their block, scatter when a car comes at them too fast, and fall when
+// one actually reaches them. The fare passengers and story characters
+// are peds with a job, flagged so the missions can find them.
 
-import { BLOCK, COLORS } from './config.js';
-import { collideCircle, blockX, blockY } from './city.js';
+import { clamp } from './rng.js';
+import { pushOut, onRoad } from './city.js';
 
-let nextPedId = 1;
+const SHIRTS = ['#e07a5f', '#3d405b', '#81b29a', '#f2cc8f', '#9d6bc2', '#4ea8de', '#e5989b', '#6a994e'];
+const SKINS = ['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac'];
 
-/** A pedestrian. role: 'walker', 'thug' (mission muscle) or 'cop' (on foot). */
-export function createPed(x, y, rng, role = 'walker') {
+export function makePed(x, y, rng, block = null) {
   return {
-    id: nextPedId++,
     x, y,
     angle: rng.range(0, Math.PI * 2),
-    hp: role === 'thug' ? 80 : 40,
-    role,
-    shirt: role === 'cop' ? '#26324e' : role === 'thug' ? '#3a3f4a' : rng.pick(COLORS.pedShirts),
-    skin: rng.pick(['#f2c9a0', '#c68863', '#8d5a3b', '#6e4530', '#ffd9b3']),
-    state: 'wander',
-    tx: x, ty: y,
-    think: rng.range(0, 2),
-    punchCd: 0,
-    down: false,
-    downTime: 0,
-    cashDropped: false,
+    vx: 0, vy: 0,
+    shirt: rng.pick(SHIRTS),
+    skin: rng.pick(SKINS),
+    state: 'walk', // walk, flee, down, ride, stand
+    block,
+    corner: rng.int(0, 3),
+    legT: rng.next(),
+    speed: rng.range(38, 62),
+    downFor: 0,
+    fleeX: 0, fleeY: 0, fleeFor: 0,
+    bob: rng.range(0, Math.PI * 2),
+    job: null, // missions may tag a ped: { role: 'fare' | 'passenger', ... }
   };
 }
 
-/** A crowd spread over the sidewalks, plazas and the beach. */
-export function spawnPeds(city, rng, count) {
+// The sidewalk loop around a block: four corners, inset from the kerb.
+function blockCorners(block) {
+  const inset = 13;
+  return [
+    { x: block.x - inset, y: block.y - inset },
+    { x: block.x + block.w + inset, y: block.y - inset },
+    { x: block.x + block.w + inset, y: block.y + block.h + inset },
+    { x: block.x - inset, y: block.y + block.h + inset },
+  ];
+}
+
+export function spawnCrowd(city, rng, count) {
   const peds = [];
-  for (let n = 0; n < count; n++) {
-    const i = rng.int(0, 10);
-    const j = rng.int(0, 7);
-    const x = blockX(i) + rng.range(6, BLOCK - 6);
-    const y = blockY(j) + rng.range(6, BLOCK - 6);
-    peds.push(createPed(x, y, rng));
+  const blocks = city.blocks.filter((b) => b.kind !== 'parking');
+  for (let i = 0; i < count; i++) {
+    const block = blocks[rng.int(0, blocks.length - 1)];
+    const corners = blockCorners(block);
+    const c = corners[rng.int(0, 3)];
+    peds.push(makePed(c.x + rng.range(-8, 8), c.y + rng.range(-8, 8), rng, block));
   }
   return peds;
 }
 
-/** Damage a person; returns true when this blow puts them down. */
-export function hurtPed(G, ped, damage, fromAngle) {
-  if (ped.down) return false;
-  ped.hp -= damage;
+export function scarePed(ped, fromX, fromY, seconds = 2.2) {
+  if (ped.state === 'down' || ped.state === 'ride') return;
   ped.state = 'flee';
-  ped.fleeX = ped.x - Math.cos(fromAngle) * 100;
-  ped.fleeY = ped.y - Math.sin(fromAngle) * 100;
-  if (ped.role === 'thug') ped.state = 'fight';
-  if (ped.hp <= 0) {
-    ped.down = true;
-    ped.downTime = 9;
-    return true;
-  }
-  return false;
+  ped.fleeX = fromX;
+  ped.fleeY = fromY;
+  ped.fleeFor = seconds;
 }
 
-function movePed(G, ped, dt, tx, ty, speed) {
+export function knockDown(ped, seconds = 3.2) {
+  ped.state = 'down';
+  ped.downFor = seconds;
+  ped.vx = 0;
+  ped.vy = 0;
+}
+
+export function updatePed(city, ped, dt, threats) {
+  ped.bob += dt * (ped.state === 'walk' || ped.state === 'flee' ? 9 : 0);
+
+  if (ped.state === 'down') {
+    ped.downFor -= dt;
+    if (ped.downFor <= 0) ped.state = 'walk';
+    return;
+  }
+  if (ped.state === 'ride' || ped.state === 'stand') return;
+
+  // A fast car nearby empties the sidewalk.
+  for (const t of threats) {
+    const d = Math.hypot(t.x - ped.x, t.y - ped.y);
+    if (d < 74 && t.speed > 120) {
+      scarePed(ped, t.x, t.y, 1.6);
+      break;
+    }
+  }
+
+  let tx;
+  let ty;
+  let speed = ped.speed;
+  if (ped.state === 'flee') {
+    ped.fleeFor -= dt;
+    const dx = ped.x - ped.fleeX;
+    const dy = ped.y - ped.fleeY;
+    const d = Math.hypot(dx, dy) || 1;
+    tx = ped.x + (dx / d) * 90;
+    ty = ped.y + (dy / d) * 90;
+    speed = 168;
+    if (ped.fleeFor <= 0) ped.state = 'walk';
+  } else if (ped.block) {
+    const corners = blockCorners(ped.block);
+    const target = corners[ped.corner];
+    tx = target.x;
+    ty = target.y;
+    if (Math.hypot(tx - ped.x, ty - ped.y) < 10) {
+      ped.corner = (ped.corner + 1) % 4;
+      return;
+    }
+  } else {
+    return;
+  }
+
   const dx = tx - ped.x;
   const dy = ty - ped.y;
-  const d = Math.hypot(dx, dy);
-  if (d < 4) return true;
+  const d = Math.hypot(dx, dy) || 1;
+  const step = Math.min(d, speed * dt);
+  ped.x += (dx / d) * step;
+  ped.y += (dy / d) * step;
   ped.angle = Math.atan2(dy, dx);
-  ped.x += Math.cos(ped.angle) * Math.min(speed * dt, d);
-  ped.y += Math.sin(ped.angle) * Math.min(speed * dt, d);
-  collideCircle(G.city, ped, 10);
-  return d < 16;
+
+  // Sidewalks only, unless fleeing across a road in a panic.
+  if (ped.state === 'walk' && onRoad(ped.x, ped.y)) {
+    ped.x -= (dx / d) * step;
+    ped.y -= (dy / d) * step;
+    ped.corner = (ped.corner + 1) % 4;
+  }
+  const pos = { x: ped.x, y: ped.y };
+  pushOut(city, pos, 9);
+  ped.x = pos.x;
+  ped.y = pos.y;
 }
 
-/** One pedestrian's step: wander, flee danger, or (for thugs) close and swing. */
-export function updatePed(G, ped, dt) {
-  if (ped.down) {
-    ped.downTime -= dt;
-    return ped.downTime > 0;
-  }
-  ped.think -= dt;
-  ped.punchCd -= dt;
-  const playerDist = Math.hypot(G.player.x - ped.x, G.player.y - ped.y);
-
-  if (ped.role === 'thug' && ped.state === 'fight') {
-    if (playerDist > 30) {
-      movePed(G, ped, dt, G.player.x, G.player.y, 178);
-    } else if (ped.punchCd <= 0 && !G.player.inCar) {
-      ped.punchCd = 0.9;
-      G.audio.punch();
-      G.hurtPlayer(9, ped.angle);
-    }
-    return true;
-  }
-
-  // Danger — gunfire, a scream, a car mounting the kerb — empties the street.
-  const danger = G.danger;
-  const nearDanger = danger && G.time - danger.t < 2.5 && Math.hypot(danger.x - ped.x, danger.y - ped.y) < 190;
-  const carThreat = G.player.inCar && playerDist < 60 && Math.hypot(G.player.car.vx, G.player.car.vy) > 160;
-  if (nearDanger || carThreat || ped.state === 'flee' && ped.think > 0) {
-    if (ped.state !== 'flee' || ped.think <= 0) {
-      const from = nearDanger ? danger : G.player;
-      ped.state = 'flee';
-      ped.think = 1.6;
-      ped.fleeX = ped.x + (ped.x - from.x) * 2 + (Math.random() - 0.5) * 80;
-      ped.fleeY = ped.y + (ped.y - from.y) * 2 + (Math.random() - 0.5) * 80;
-    }
-    movePed(G, ped, dt, ped.fleeX, ped.fleeY, 215);
-    return true;
-  }
-
-  ped.state = 'wander';
-  if (ped.think <= 0) {
-    ped.think = 2 + Math.random() * 4;
-    // Stroll to another point near the block edge: sidewalks, plazas, sand.
-    ped.tx = ped.x + (Math.random() - 0.5) * 260;
-    ped.ty = ped.y + (Math.random() - 0.5) * 260;
-  }
-  movePed(G, ped, dt, ped.tx, ped.ty, 62);
-  return true;
+export function pedDrawInfo(ped) {
+  return {
+    shirt: ped.shirt,
+    skin: ped.skin,
+    down: ped.state === 'down',
+    bob: Math.sin(ped.bob) * (ped.state === 'down' ? 0 : 1.6),
+  };
 }
 
-/** A downed walker sometimes drops the cash in their pocket, once. */
-export function dropCash(G, ped) {
-  if (ped.cashDropped || ped.role !== 'walker') return;
-  ped.cashDropped = true;
-  if (Math.random() < 0.55) {
-    G.pickups.push({ x: ped.x + 8, y: ped.y, kind: 'cash', amount: 5 + Math.floor(Math.random() * 26), t: 0 });
-  }
-}
+export { clamp };
