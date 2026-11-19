@@ -1,44 +1,36 @@
-// Palmera Heat — the hand-in program for the gta6-01 bounty (Node 22,
-// standard library only). The game itself is the static site in game/:
-// index.html and its ES modules, no build step, no network. This program
-// copies game/ and screenshots/ into the output directory and writes
-// dossier.json with the kit's vendored library, exactly as the scorer
-// rebuilds it, so what is judged is what was handed in.
+// Palmera Heat — the hand-in program.
 //
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-//
-// Outside the grader, MAKEFUN_OUTPUT_DIR stands in for /output.
+// The grader runs this file with Node from the repository root. It copies
+// the playable game (game/) and the screenshots (screenshots/) into the
+// output directory, then writes dossier.json there with the kit's own
+// buildDossier, so the dossier bytes are exactly the ones the scorer
+// rebuilds from the same tree. Outside the grader, MAKEFUN_OUTPUT_DIR
+// names the output directory; without it we write to ./out for local runs.
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { cpSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
 
-const repoDir = fileURLToPath(new URL('.', import.meta.url));
-const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const repoDir = dirname(fileURLToPath(import.meta.url));
+const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? join(repoDir, 'out');
 
-// Fail loudly rather than hand in an empty shell if the layout is broken.
-if (!existsSync(join(repoDir, 'game', 'index.html'))) {
-  throw new Error('game/index.html is missing: run this from the entry repository root.');
+// Start from a clean slate inside the output directory so a second run
+// produces exactly the same tree as the first.
+for (const part of ['game', 'screenshots']) {
+  rmSync(join(outDir, part), { recursive: true, force: true });
+  cpSync(join(repoDir, part), join(outDir, part), { recursive: true });
 }
+rmSync(join(outDir, 'dossier.json'), { force: true });
 
-mkdirSync(outputDir, { recursive: true });
-cpSync(join(repoDir, 'game'), join(outputDir, 'game'), { recursive: true });
-mkdirSync(join(outputDir, 'screenshots'), { recursive: true });
-if (existsSync(join(repoDir, 'screenshots'))) {
-  cpSync(join(repoDir, 'screenshots'), join(outputDir, 'screenshots'), { recursive: true });
-}
-
-// The gate's own caps, passed whole: only text_max_bytes shapes the bytes;
-// the rest make this program refuse exactly what the scorer would refuse
-// (over 4 screenshots or one over 256 KiB; game/ over 993 entries or 48 MiB;
-// a path under game/ over 1000 bytes).
-const dossier = buildDossier(outputDir, {
+const dossier = buildDossier(outDir, {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },
   game_max_files: 993,
   game_max_bytes: 50331648,
   game_path_max_bytes: 1000,
 });
-writeFileSync(join(outputDir, 'dossier.json'), dossier);
-console.log(`Palmera Heat handed in: game/ and screenshots/ copied to ${outputDir}, dossier.json written (${dossier.length} bytes).`);
+writeFileSync(join(outDir, 'dossier.json'), dossier);
+
+const shotCount = readdirSync(join(outDir, 'screenshots')).length;
+console.log(`Palmera Heat handed in to ${outDir} (dossier ${dossier.byteLength} bytes, ${shotCount} screenshots).`);

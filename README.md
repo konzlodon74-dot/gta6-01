@@ -1,55 +1,84 @@
-[![make.fun bounty](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
-[![rank](https://make.fun/badge/gta6-01/konzlodon74-dot/gta6-01/rank.svg)](https://make.fun/bounty/gta6-01)
-[![reward](https://make.fun/badge/gta6-01/konzlodon74-dot/gta6-01/reward.svg)](https://make.fun/bounty/gta6-01)
+[![Palmera Heat on make.fun](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
+[![Rank](https://make.fun/badge/gta6-01/konzlodon74-dot/gta6-01/rank.svg)](https://make.fun/bounty/gta6-01)
+[![Reward](https://make.fun/badge/gta6-01/konzlodon74-dot/gta6-01/reward.svg)](https://make.fun/bounty/gta6-01)
 
 # Palmera Heat
 
-An original open-world crime game for the make.fun **gta6-01** bounty, built
-as static web files — no build step, no network, no libraries. Everything is
-hand-written ES modules under `game/src/`, one job per file.
+A top-down open-world crime game that runs entirely in the browser. No
+libraries, no downloads, no network: every sprite is drawn in code on a
+canvas and every sound is synthesized with WebAudio.
 
-**Play it:** `node serve.ts`, then open http://localhost:8080 in desktop
-Chrome. Or serve `game/` with any static file server.
+You are Nico Ferreira, a marina hand on the Costa Serena who owes the fixer
+Dario Venn a $2,000 marker. Work it off the only way Palmera offers: favours,
+deliveries, borrowed cars, and staying one intersection ahead of the
+Palmera police.
 
-## The game
+## The city
 
-Rico Vega washes up in **Palmera City** — eleven avenues of Old Town
-terracotta, Downtown glass and Marina whitewash, wrapped around a palm-lined
-beach — with a borrowed sedan and a fixer, **Sol Duarte**, who always has one
-more job. Six story jobs (a first set of wheels, a hot delivery, a dockside
-pickup, a neon repo, beachfront muscle, and the Palmera Job itself) plus
-endless stash runs.
+Palmera is a living grid of six avenues and four streets across eight named
+districts — Hillside, Old Town, Downtown, the Mercado, Portside, Palm Beach,
+the Marina and Farallon Point with its lighthouse. Traffic follows the road
+network on its own, pedestrians walk their blocks and scatter when things get
+loud, and the east edge of town gives way to sand, piers, moored boats and
+open water.
 
-- Explore on foot or steal and drive 40+ cars: sedans, hatches, sports cars,
-  vans and cabs, all with arcade physics, drift, damage and skid marks.
-- Traffic drives the road graph on the correct side and brakes for you;
-  pedestrians stroll, flee gunfire, and drop cash.
-- A five-star wanted system: the Palmera PD routes squad cars across the
-  city, rams, piles out, and busts you if officers hold you. Cool off out of
-  sight and the stars drain.
-- Combat on foot: fists first, a pistol after the dockside job; thugs and
-  warehouse guards fight back.
-- HUD with cash, health, wanted stars, an arrest meter, and a minimap with a
-  live GPS route to your objective. Synthesised WebAudio engine, sirens and
-  effects — no audio files. Progress saves at Rico's apartment or Sol's
-  Cantina (localStorage).
+## What you can do
 
-## Layout
+- Walk and run anywhere; walk into the glowing ring to talk and take jobs.
+- Take any car you can reach — parked ones quietly, traffic ones in front of
+  their drivers — and drive it with arcade physics: drifts, handbrake turns,
+  skid marks, panel damage, smoke and wrecks.
+- Commit crimes and earn a wanted level of up to five stars. Police units
+  converge from across the city, chase with your velocity in mind, and try to
+  box you in. Get pinned at low speed and the bust meter fills.
+- Follow a six-mission story chain for Dario: a first meeting at the marina,
+  a cooler run, a passenger who knows too much, a vermillion coupe that has
+  to change hands, a case delivered under a three-star sky, and a final
+  escape along the coast.
+- Earn on the side with courier drops and passenger fares, both offered on
+  the street between story beats.
+- Lose the heat for good at Venn's Garage, where $150 buys new plates and a
+  respray.
+- Get busted and wake up outside Palmera Police HQ, lighter in the wallet.
+  Get wasted and wake up at St. Serena Hospital. Either way, the city keeps
+  your story progress.
 
-- `game/index.html` — the page; `game/src/` — the game: `config.js` tuning,
-  `random.js` seeded RNG, `city.js` the city and its road graph, `input.js`,
-  `audio.js`, `vehicles.js`, `people.js`, `police.js`, `missions.js`,
-  `render.js`, `hud.js`, `game.js` the simulation core, `shots.js` the
-  staged screenshot scenes, `main.js` the bootstrap.
-- `screenshots/` — four real frames of the game, staged with `?shot=` scenes
-  and captured in headless Chromium (see `shots.json`).
-- `main.ts` — the hand-in program: copies `game/` + `screenshots/` to the
-  output directory and writes `dossier.json` via `vendor/makefun-game.ts`
-  (the kit's library, unchanged).
-- `serve.ts` — a tiny local server for play-testing.
+## Controls
 
-## Hand in
+| Input | Action |
+| --- | --- |
+| WASD / arrow keys | Move on foot, drive |
+| Shift | Run on foot |
+| F | Enter / exit the nearest car |
+| Space | Shove (on foot) / handbrake (in a car) |
+| E | Pay for new plates at Venn's Garage |
+| P or Esc | Pause |
+| Enter | Start, continue after a bust or a hospital visit |
+| N | New game from the title screen |
 
-```
-mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-```
+Progress is saved to localStorage whenever a mission or side job lands.
+
+## Running it
+
+Open `game/index.html` from any static file server (or straight from disk in
+most browsers) and play. The page is the whole game: `game/src/` holds the
+modules — city generation, vehicles, pedestrians, police, missions,
+rendering, HUD, audio and the staged screenshot scenes.
+
+For deterministic screenshot scenes, append `?shot=chase`, `?shot=beach`,
+`?shot=marina` or `?shot=arrest` to the URL; the game freezes on a composed
+gameplay moment and flags `window.__shotReady` when it is on screen. The
+four captures in `screenshots/` come straight from those scenes: a three-star
+pursuit downtown, Rosa waiting on Palm Beach, a delivery staged on the marina
+pier, and a bust about to land at a downtown intersection.
+
+## Hand-in
+
+`main.ts` is the make.fun hand-in script. With `MAKEFUN_OUTPUT_DIR` set it
+copies `game/` and `screenshots/` into the output directory and writes
+`dossier.json` there with `buildDossier` from `vendor/makefun-game.ts`,
+which is the competition kit's vendor file, kept byte-identical.
+
+## License
+
+MIT — see `LICENSE`.
